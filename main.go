@@ -1,26 +1,27 @@
 package main
 
 import (
-	"crypto/sha512"
+	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/boltdb/bolt"
+	pb "github.com/gosuri/uiprogress"
 	"gopkg.in/urfave/cli.v2"
 )
 
 type Statistics struct {
 	Runid     string
-	Files     int64
-	Directory int64
-	Errors    int64
+	Files     int
+	Directory int
+	Errors    int
 	Start     time.Time
 	Stop      time.Time
 	Duration  time.Duration
@@ -28,13 +29,16 @@ type Statistics struct {
 
 func (s *Statistics) String() string {
 
-	start := s.Start.Format("2006-01-01 15:11:12001")
-	stop := s.Stop.Format("2006-01-01 15:11:12001")
+	start := s.Start.Format(time.RFC3339Nano)
+	stop := s.Stop.Format(time.RFC3339Nano)
 	return fmt.Sprintf("[start : %s \n ,stop:%s \n, directory: %d, file %d, errors %d,]", start, stop, s.Directory, s.Files, s.Errors)
 }
 
-var i int64
+var i int
+var count int
+
 var db *bolt.DB
+var bar *pb.Bar
 var dbname string
 var hasher hash.Hash
 var bucketName string
@@ -111,7 +115,11 @@ func startHash(c *cli.Context) error {
 
 	bucketName = fmt.Sprintf("%s://%s://%s", name, dir, t.Format("2006-01-01"))
 	stats.Runid = bucketName
-	hasher = sha512.New()
+
+	_ = filepath.Walk(dir, fcount)
+	fmt.Println(count)
+	pb.Start()
+	bar = pb.AddBar(count)
 
 	db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists([]byte(bucketName))
@@ -120,7 +128,7 @@ func startHash(c *cli.Context) error {
 		}
 		return nil
 	})
-	err = filepath.Walk(dir, hashcode)
+	err = filepath.Walk(dir, md5code)
 	if err != nil {
 		return err
 	}
@@ -164,7 +172,9 @@ func display(c *cli.Context) error {
 			return fmt.Errorf("create bucket: %s", err)
 		}
 		b.ForEach(func(k, v []byte) error {
-			fmt.Printf("file=%s, hash=%s\n", k, hex.EncodeToString(v))
+			if v != nil {
+				fmt.Printf("file=%s, hash=%s\n", k, hex.EncodeToString(v))
+			}
 			return nil
 		})
 		return nil
@@ -220,8 +230,9 @@ func listRuns(c *cli.Context) error {
 //-----------------------------------------------------------------------------------/
 // utilities                                                                         /
 //-----------------------------------------------------------------------------------/
-func hashcode(path string, info os.FileInfo, err error) error {
-	hasher.Reset()
+
+func md5code(path string, info os.FileInfo, err error) error {
+	h := md5.New()
 	if err != nil {
 		log.Print(err)
 		return nil
@@ -234,23 +245,43 @@ func hashcode(path string, info os.FileInfo, err error) error {
 		return nil
 	}
 
-	data, err := ioutil.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
-		log.Print(err)
-		return nil
+		stats.Errors++
+		return err
 	}
-
-	hasher.Write(data)
-	sha := hasher.Sum(nil)
+	if _, err := io.Copy(h, f); err != nil {
+		stats.Errors++
+		return err
+	}
+	md5 := h.Sum(nil)
 
 	stats.Files++
+	bar.Incr()
 	db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		if err != nil {
 			return fmt.Errorf("gettinh bucket: %s", err)
 		}
-		b.Put([]byte(path), sha)
+		b.Put([]byte(path), md5)
 		return nil
 	})
+	return nil
+}
+
+func fcount(path string, info os.FileInfo, err error) error {
+	if err != nil {
+		log.Print(err)
+		return nil
+	}
+	if info.Name() == "pa.db.lock" {
+		return nil
+	}
+	if info.IsDir() {
+		stats.Directory++
+		return nil
+	}
+
+	count++
 	return nil
 }
