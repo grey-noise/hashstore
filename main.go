@@ -11,52 +11,40 @@ import (
 	"path/filepath"
 	"time"
 
+	"gopkg.in/urfave/cli.v2"
+
 	"github.com/boltdb/bolt"
-	"github.com/minio/cli"
 )
+
+type statistics struct {
+	files     int64
+	directory int64
+	errors    int64
+	start     time.Time
+	stop      time.Time
+	duration  time.Duration
+}
+
+func (s *statistics) String() string {
+
+	start := s.start.Format("2006-01-01 15:11:12001")
+	stop := s.stop.Format("2006-01-01 15:11:12001")
+	return fmt.Sprintf("[start : %s \n ,stop:%s \n, directory: %d, file %d, errors %d,]", start, stop, s.directory, s.files, s.errors)
+}
 
 var i int64
 var db *bolt.DB
 var hasher hash.Hash
 var bucketName string
-
-func hashcode(path string, info os.FileInfo, err error) error {
-	hasher.Reset()
-	if err != nil {
-		log.Print(err)
-		return nil
-	}
-	if info.IsDir() || info.Name() == "pa.db.lock" {
-		return nil
-	}
-
-	data, err := ioutil.ReadFile(path)
-	if err != nil {
-		log.Print(err)
-		return nil
-	}
-
-	hasher.Write(data)
-	sha := hasher.Sum(nil)
-
-	i++
-
-	db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-		b.Put([]byte(path), sha)
-		return nil
-	})
-	return nil
-}
+var stats *statistics
 
 func main() {
-	app := cli.NewApp()
+	app := &cli.App{}
 	app.Version = "19.99.0"
-
-	app.Commands = []cli.Command{
+	app.Flags = []cli.Flag{
+		&cli.StringFlag{Name: "name", Value: "bob", Usage: "a name to say"},
+	}
+	app.Commands = []*cli.Command{
 		{
 			Name:    "start",
 			Aliases: []string{"s"},
@@ -69,41 +57,53 @@ func main() {
 			Usage:   "display  a run",
 			Action:  display,
 		},
+
+		{
+			Name:    "delete",
+			Aliases: []string{"h"},
+			Usage:   "display  a run",
+			Action:  delete,
+		},
+
 		{
 			Name:    "list",
 			Aliases: []string{"a"},
 			Usage:   "list all the runs ",
-			Action:  lists_run,
+			Action:  listRuns,
 		},
 	}
 
 	app.Run(os.Args)
 }
 
-func startHash(c *cli.Context) {
+func startHash(c *cli.Context) error {
 	dir := c.Args().First()
 
-	i = 0
+	stats = &statistics{start: time.Now(),
+		errors:    0,
+		files:     0,
+		directory: 0}
+
 	var err error
 	if err != nil {
-		panic(err)
+		return (err)
 	}
 
-	db, err := bolt.Open("pa.db", 0600, nil)
+	db, err = bolt.Open("pa.db", 0600, nil)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer db.Close()
 
 	name, err := os.Hostname()
 	if err != nil {
-		panic(err)
+		return (err)
 	}
 
 	t := time.Now().Local()
 
 	bucketName = fmt.Sprintf("%s://%s://%s", name, dir, t.Format("2006-01-01"))
-	fmt.Println(bucketName)
+
 	hasher = sha512.New()
 
 	db.Update(func(tx *bolt.Tx) error {
@@ -115,12 +115,15 @@ func startHash(c *cli.Context) {
 	})
 	err = filepath.Walk(dir, hashcode)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	fmt.Printf("%d files treated", i)
+	stats.stop = time.Now()
+	stats.duration = stats.stop.Sub(stats.start)
+	fmt.Printf("statisctic %+v ", stats)
+	return nil
 }
 
-func Display(c *cli.Context) {
+func display(c *cli.Context) error {
 	bucketName := c.Args().First()
 
 	db, err := bolt.Open("pa.db", 0600, nil)
@@ -140,14 +143,31 @@ func Display(c *cli.Context) {
 		})
 		return nil
 	})
-
+	return nil
 }
 
-func lists_run(c *cli.Context) {
+func delete(c *cli.Context) error {
+	db, err := bolt.Open("pa.db", 0600, nil)
+	if err != nil {
+		return (err)
+	}
+	defer db.Close()
+
+	db.Update(func(tx *bolt.Tx) error {
+		err := tx.DeleteBucket([]byte(c.Args().First()))
+		if err != nil {
+			return fmt.Errorf("error deleting runs: %s", err)
+		}
+		return nil
+	})
+	return nil
+}
+
+func listRuns(c *cli.Context) error {
 
 	db, err := bolt.Open("pa.db", 0600, nil)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer db.Close()
 
@@ -159,7 +179,46 @@ func lists_run(c *cli.Context) {
 		})
 	})
 	if err != nil {
-		fmt.Println(err)
-		return
+
+		return err
 	}
+	return nil
+}
+
+//-----------------------------------------------------------------------------------/
+// utilities                                                                         /
+//-----------------------------------------------------------------------------------/
+func hashcode(path string, info os.FileInfo, err error) error {
+	hasher.Reset()
+	if err != nil {
+		log.Print(err)
+		return nil
+	}
+	if info.Name() == "pa.db.lock" {
+		return nil
+	}
+	if info.IsDir() {
+		stats.directory++
+		return nil
+	}
+
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		log.Print(err)
+		return nil
+	}
+
+	hasher.Write(data)
+	sha := hasher.Sum(nil)
+
+	stats.files++
+	db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucketName))
+		if err != nil {
+			return fmt.Errorf("gettinh bucket: %s", err)
+		}
+		b.Put([]byte(path), sha)
+		return nil
+	})
+	return nil
 }
