@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha512"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"hash"
 	"io/ioutil"
@@ -11,36 +12,38 @@ import (
 	"path/filepath"
 	"time"
 
-	"gopkg.in/urfave/cli.v2"
-
 	"github.com/boltdb/bolt"
+	"gopkg.in/urfave/cli.v2"
 )
 
-type statistics struct {
-	files     int64
-	directory int64
-	errors    int64
-	start     time.Time
-	stop      time.Time
-	duration  time.Duration
+type Statistics struct {
+	Runid     string
+	Files     int64
+	Directory int64
+	Errors    int64
+	Start     time.Time
+	Stop      time.Time
+	Duration  time.Duration
 }
 
-func (s *statistics) String() string {
+func (s *Statistics) String() string {
 
-	start := s.start.Format("2006-01-01 15:11:12001")
-	stop := s.stop.Format("2006-01-01 15:11:12001")
-	return fmt.Sprintf("[start : %s \n ,stop:%s \n, directory: %d, file %d, errors %d,]", start, stop, s.directory, s.files, s.errors)
+	start := s.Start.Format("2006-01-01 15:11:12001")
+	stop := s.Stop.Format("2006-01-01 15:11:12001")
+	return fmt.Sprintf("[start : %s \n ,stop:%s \n, directory: %d, file %d, errors %d,]", start, stop, s.Directory, s.Files, s.Errors)
 }
 
 var i int64
 var db *bolt.DB
+var dbname string
 var hasher hash.Hash
 var bucketName string
-var stats *statistics
+var stats *Statistics
 
 func main() {
 	app := &cli.App{}
 	app.Version = "0.1"
+	app.EnableShellCompletion = true
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{Name: "db", Value: "pa.db", Usage: "the database location (must have writting access)"},
 	}
@@ -83,10 +86,10 @@ func main() {
 func startHash(c *cli.Context) error {
 	dir := c.Args().First()
 
-	stats = &statistics{start: time.Now(),
-		errors:    0,
-		files:     0,
-		directory: 0}
+	stats = &Statistics{Start: time.Now(),
+		Errors:    0,
+		Files:     0,
+		Directory: 0}
 
 	var err error
 	if err != nil {
@@ -107,7 +110,7 @@ func startHash(c *cli.Context) error {
 	t := time.Now().Local()
 
 	bucketName = fmt.Sprintf("%s://%s://%s", name, dir, t.Format("2006-01-01"))
-
+	stats.Runid = bucketName
 	hasher = sha512.New()
 
 	db.Update(func(tx *bolt.Tx) error {
@@ -121,8 +124,27 @@ func startHash(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	stats.stop = time.Now()
-	stats.duration = stats.stop.Sub(stats.start)
+	stats.Stop = time.Now()
+	stats.Duration = stats.Stop.Sub(stats.Start)
+	db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
+		if err != nil {
+			return fmt.Errorf("create bucket: %s", err)
+		}
+		s, err := b.CreateBucket([]byte("stats"))
+		if err != nil {
+			return fmt.Errorf("create bucket: %s", err)
+		}
+		fmt.Println(stats)
+		bs, err := json.Marshal(stats)
+		if err != nil {
+			return fmt.Errorf("marshall %s", err)
+		}
+
+		s.Put([]byte("stats"), bs)
+		return nil
+	})
+
 	fmt.Printf("statisctic %+v ", stats)
 	return nil
 }
@@ -177,13 +199,19 @@ func listRuns(c *cli.Context) error {
 
 	err = db.View(func(tx *bolt.Tx) error {
 
-		return tx.ForEach(func(name []byte, _ *bolt.Bucket) error {
-			fmt.Println(string(name))
+		return tx.ForEach(func(name []byte, b *bolt.Bucket) error {
+			//fmt.Println(string(name))
+			s := b.Bucket([]byte("stats"))
+			if s == nil {
+				return nil
+			}
+			stats = &Statistics{}
+			json.Unmarshal(s.Get([]byte("stats")), stats)
+			fmt.Printf("stats for %s =  %+v", stats.Runid, stats)
 			return nil
 		})
 	})
 	if err != nil {
-
 		return err
 	}
 	return nil
@@ -202,7 +230,7 @@ func hashcode(path string, info os.FileInfo, err error) error {
 		return nil
 	}
 	if info.IsDir() {
-		stats.directory++
+		stats.Directory++
 		return nil
 	}
 
@@ -215,7 +243,7 @@ func hashcode(path string, info os.FileInfo, err error) error {
 	hasher.Write(data)
 	sha := hasher.Sum(nil)
 
-	stats.files++
+	stats.Files++
 	db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		if err != nil {
