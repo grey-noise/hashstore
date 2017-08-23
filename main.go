@@ -40,36 +40,40 @@ var stats *statistics
 
 func main() {
 	app := &cli.App{}
-	app.Version = "19.99.0"
+	app.Version = "0.1"
 	app.Flags = []cli.Flag{
-		&cli.StringFlag{Name: "name", Value: "bob", Usage: "a name to say"},
+		&cli.StringFlag{Name: "db", Value: "pa.db", Usage: "the database location (must have writting access)"},
 	}
 	app.Commands = []*cli.Command{
 		{
-			Name:    "start",
-			Aliases: []string{"s"},
-			Usage:   "start a hash",
-			Action:  startHash,
+			Name:        "start",
+			Aliases:     []string{"s"},
+			Usage:       "start location",
+			Description: "will compute a hash for every file below the location and store it into the db",
+			Action:      startHash,
 		},
 		{
-			Name:    "display",
-			Aliases: []string{"h"},
-			Usage:   "display  a run",
-			Action:  display,
-		},
-
-		{
-			Name:    "delete",
-			Aliases: []string{"h"},
-			Usage:   "display  a run",
-			Action:  delete,
+			Name:        "display",
+			Aliases:     []string{"h"},
+			Usage:       "display  runid",
+			Description: "will display all the hash and associated file of the run id",
+			Action:      display,
 		},
 
 		{
-			Name:    "list",
-			Aliases: []string{"a"},
-			Usage:   "list all the runs ",
-			Action:  listRuns,
+			Name:        "delete",
+			Aliases:     []string{"h"},
+			Usage:       "delete  runid",
+			Description: "will delete all information related to a run",
+			Action:      delete,
+		},
+
+		{
+			Name:        "list",
+			Aliases:     []string{"a"},
+			Usage:       "list",
+			Description: "will display all the runids",
+			Action:      listRuns,
 		},
 	}
 
