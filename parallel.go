@@ -61,9 +61,7 @@ func digester(done <-chan struct{}, paths <-chan string, c chan<- result) {
 		} else {
 			h := md5.New()
 			if _, err := io.Copy(h, f); err != nil {
-
 				result.err = err
-
 			}
 			result.sum = h.Sum(nil)
 		}
@@ -92,9 +90,10 @@ func MD5All(root string, db *bolt.DB) error {
 	// Start a fixed number of goroutines to read and digest files.
 	c := make(chan result) // HLc
 	var wg sync.WaitGroup
-	const numDigesters = 10
-	wg.Add(numDigesters)
-	for i := 0; i < numDigesters; i++ {
+
+	wg.Add(digesterNr)
+	log.Printf("launching %d digester", digesterNr)
+	for i := 0; i < digesterNr; i++ {
 		go func() {
 			digester(done, paths, c) // HLc
 			wg.Done()

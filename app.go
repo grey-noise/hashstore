@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"hash"
+	"log"
 	"os"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 )
 
 type Statistics struct {
+	HostName  string
+	Location  string
 	Runid     string
 	Files     int
 	Directory int
@@ -25,7 +28,7 @@ func (s *Statistics) String() string {
 
 	start := s.Start.Format(time.RFC3339Nano)
 	stop := s.Stop.Format(time.RFC3339Nano)
-	return fmt.Sprintf("[start : %s \n ,stop:%s \n, directory: %d, file %d, errors %d,]", start, stop, s.Directory, s.Files, s.Errors)
+	return fmt.Sprintf("[hostname: %s location: %s start : [%s] stop:%s, directory: [%d], file [%d], errors [%d]]", s.HostName, s.Location, start, stop, s.Directory, s.Files, s.Errors)
 }
 
 var i int
@@ -37,14 +40,17 @@ var dbname string
 var hasher hash.Hash
 var bucketName string
 var stats *Statistics
+var digesterNr int
 
 func main() {
 	app := &cli.App{}
 	app.Version = "0.1"
 	app.EnableShellCompletion = true
 	app.Flags = []cli.Flag{
-		&cli.StringFlag{Name: "db", Value: "pa.db", Usage: "the database location (must have writting access)"},
+		&cli.StringFlag{Name: "db", Value: "pa.db", Usage: "the database location (must have writting access)", Destination: &dbname},
+		&cli.IntFlag{Name: "pr", Value: 3, Usage: "the number of workers", Destination: &digesterNr},
 	}
+
 	app.Commands = []*cli.Command{
 		{
 			Name:        "start",
@@ -60,7 +66,13 @@ func main() {
 			Description: "will display all the hash and associated file of the run id",
 			Action:      display,
 		},
-
+		{
+			Name:        "error",
+			Aliases:     []string{"r"},
+			Usage:       "error runid",
+			Description: "will display all the errors and associated file of the run id",
+			Action:      derror,
+		},
 		{
 			Name:        "delete",
 			Aliases:     []string{"h"},
@@ -76,7 +88,16 @@ func main() {
 			Description: "will display all the runids",
 			Action:      listRuns,
 		},
+		{
+			Name:        "compare",
+			Aliases:     []string{"a"},
+			Usage:       "compare runid1 runid2",
+			Description: "will display all the runids",
+			Action:      compareRuns,
+		},
 	}
 
-	fmt.Println(app.Run(os.Args))
+	if err := (app.Run(os.Args)); err != nil {
+		log.Fatal(err)
+	}
 }
