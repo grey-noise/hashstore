@@ -18,3 +18,16 @@ debug
 # db files
 *.db
 *.sha
+
+bin
+config.yaml
+.vscode/
+debug
+coverage.out
+*.log
+*.
+vendor/*
+prof.cpu
+torch.svg
+perf.0
+command/exec.sh
