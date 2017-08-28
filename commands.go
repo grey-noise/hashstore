@@ -49,6 +49,7 @@ func listRuns(c *cli.Context) error {
 	}
 	return nil
 }
+
 func display(c *cli.Context) error {
 	bucketName := c.Args().First()
 	db, err := bolt.Open(dbname, 0600, nil)
@@ -57,7 +58,7 @@ func display(c *cli.Context) error {
 	}
 	defer db.Close()
 
-	err = db.Update(func(tx *bolt.Tx) error {
+	err = db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
@@ -114,6 +115,11 @@ func derror(c *cli.Context) error {
 }
 
 func compareRuns(c *cli.Context) error {
+
+	if c.Args().Len() != 2 {
+		return fmt.Errorf("Please provice two runids")
+	}
+
 	src := c.Args().Get(0)
 	dest := c.Args().Get(1)
 
@@ -122,24 +128,13 @@ func compareRuns(c *cli.Context) error {
 }
 
 func delete(c *cli.Context) error {
-	db, err := bolt.Open(dbname, 0600, nil)
-	if err != nil {
-		return (err)
-	}
-	defer db.Close()
 
-	err = db.Update(func(tx *bolt.Tx) error {
-		err := tx.DeleteBucket([]byte(c.Args().First()))
-		if err != nil {
-			log.Println("error Deleting", c.Args().First())
-			return fmt.Errorf("error deleting runs: %s", err)
-		}
-		return nil
-	})
-	if err != nil {
-		log.Println(err)
+	if len(c.Args().First()) > 0 {
+		return deleteRun(dbname, c.Args().First())
 	}
-	return nil
+
+	return fmt.Errorf("Please provice a runId")
+
 }
 func startHash(c *cli.Context) error {
 	fmt.Println("computing...")
@@ -155,7 +150,8 @@ func startHash(c *cli.Context) error {
 		Start:     time.Now(),
 		Errors:    0,
 		Files:     0,
-		Directory: 0}
+		Directory: 0,
+	}
 
 	db, err := bolt.Open(dbname, 0600, nil)
 	if err != nil {
@@ -242,14 +238,14 @@ func fcount(path string, info os.FileInfo, err error) error {
 }
 
 func compare(src string, dest string, dbname string) error {
-	//ok := 0
-	//nok := 0$
 	log.Printf("Comparing src %s with dest %s in db : %s", src, dest, dbname)
 	db, err := bolt.Open(dbname, 0600, nil)
 	if err != nil {
 		log.Println(err)
 		return (err)
 	}
+	defer db.Close()
+
 	err = db.View(func(tx *bolt.Tx) error {
 
 		log.Println("starting analysis")
@@ -319,4 +315,27 @@ func analysehash(key []byte, srcvalue []byte, destvalue []byte) bool {
 	log.Printf("%s is not ok", key)
 	return false
 
+}
+
+func deleteRun(dbName string, runID string) error {
+	{
+		db, err := bolt.Open(dbname, 0600, nil)
+		if err != nil {
+			return (err)
+		}
+		defer db.Close()
+
+		err = db.Update(func(tx *bolt.Tx) error {
+			err := tx.DeleteBucket([]byte(runID))
+			if err != nil {
+				log.Println("error Deleting", runID)
+				return fmt.Errorf("error deleting runs: %s", err)
+			}
+			return nil
+		})
+		if err != nil {
+			log.Println(err)
+		}
+		return nil
+	}
 }
