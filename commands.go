@@ -36,7 +36,7 @@ func listRuns(c *cli.Context) error {
 
 				return fmt.Errorf("could not retrieve stats")
 			}
-			stats = &Statistics{}
+			stats := &Statistics{}
 			if err := json.Unmarshal(s.Get([]byte("stats")), stats); err != nil {
 				log.Printf("unabale to unmarshall statistic")
 			}
@@ -137,14 +137,16 @@ func delete(c *cli.Context) error {
 
 }
 func startHash(c *cli.Context) error {
+
 	fmt.Println("computing...")
 	dir := c.Args().First()
+
 	name, err := os.Hostname()
 	if err != nil {
 		return err
 	}
 
-	stats = &Statistics{
+	stats := &Statistics{
 		HostName:  name,
 		Location:  dir,
 		Start:     time.Now(),
@@ -153,75 +155,48 @@ func startHash(c *cli.Context) error {
 		Directory: 0,
 	}
 
-	db, err := bolt.Open(dbname, 0600, nil)
+	bucketName, err := createRunBucket(dbname)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
-
-	t := time.Now()
-	entropy := rand.New(rand.NewSource(t.UnixNano()))
-	fmt.Println()
-	bucketName = ulid.MustNew(ulid.Timestamp(t), entropy).String()
 	stats.Runid = bucketName
 	fmt.Println("computing the number of files to be processed ")
+	count := 0
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Print(err)
+			//	return err
+		}
 
-	if err := filepath.Walk(dir, fcount); err != nil {
+		if info.IsDir() {
+			stats.Directory++
+			return nil
+		}
+
+		count++
+		return nil
+	})
+	fmt.Println("count ", count)
+	if err != nil {
 		return err
 	}
 
 	ui.Start()
-	bar = ui.AddBar(count)
+	bar := ui.AddBar(count)
 	bar.AppendCompleted()
 	bar.PrependElapsed()
 
-	err = db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-		_, err = b.CreateBucketIfNotExists([]byte("errors"))
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-
-		return nil
-	})
-	if err != nil {
-		log.Println(err)
-	}
-	if err := MD5All(dir, db); err != nil {
+	if err := MD5All(dir, dbname, bucketName, stats, bar); err != nil {
 		return err
 	}
 	stats.Stop = time.Now()
 	stats.Duration = stats.Stop.Sub(stats.Start)
-	err = db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-		s, err := b.CreateBucket([]byte("stats"))
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
+	log.Printf("\n statisctic %+v \n", stats)
 
-		bs, err := json.Marshal(stats)
-		if err != nil {
-			return fmt.Errorf("marshall %s", err)
-		}
+	return saveStat(dbname, bucketName, *stats)
 
-		if err := s.Put([]byte("stats"), bs); err != nil {
-			log.Println(err)
-		}
-		return nil
-	})
-	if err != nil {
-		log.Println(err)
-	}
-
-	fmt.Printf("statisctic %+v ", stats)
-	return nil
 }
+
 func fcount(path string, info os.FileInfo, err error) error {
 	if err != nil {
 		log.Print(err)
@@ -229,11 +204,11 @@ func fcount(path string, info os.FileInfo, err error) error {
 	}
 
 	if info.IsDir() {
-		stats.Directory++
+		//stats.Directory++
 		return nil
 	}
 
-	count++
+	//count++
 	return nil
 }
 
@@ -338,4 +313,68 @@ func deleteRun(dbName string, runID string) error {
 		}
 		return nil
 	}
+}
+
+func createRunBucket(dbname string) (string, error) {
+
+	t := time.Now()
+	entropy := rand.New(rand.NewSource(t.UnixNano()))
+
+	bucketName := ulid.MustNew(ulid.Timestamp(t), entropy).String()
+
+	db, err := bolt.Open(dbname, 0600, nil)
+	if err != nil {
+		return "", (err)
+	}
+	defer db.Close()
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
+		if err != nil {
+			return fmt.Errorf("create bucket: %s", err)
+		}
+		_, err = b.CreateBucketIfNotExists([]byte("errors"))
+		if err != nil {
+			return fmt.Errorf("create bucket: %s", err)
+		}
+		_, err = b.CreateBucket([]byte("stats"))
+		if err != nil {
+			return fmt.Errorf("create bucket: %s", err)
+		}
+
+		return nil
+	})
+
+	return bucketName, err
+}
+
+func saveStat(dbname string, runID string, stats Statistics) error {
+
+	db, err := bolt.Open(dbname, 0600, nil)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	return db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(runID))
+		if b == nil {
+			return fmt.Errorf("get bucket: %s", err)
+		}
+		s := b.Bucket([]byte("stats"))
+		if s == nil {
+			return fmt.Errorf("get bucket: %s", err)
+		}
+
+		bs, err := json.Marshal(stats)
+		if err != nil {
+			return fmt.Errorf("marshall %s", err)
+		}
+
+		if err := s.Put([]byte("stats"), bs); err != nil {
+			return err
+		}
+		return nil
+	})
+
 }

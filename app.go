@@ -2,13 +2,10 @@ package main
 
 import (
 	"fmt"
-	"hash"
 	"log"
 	"os"
 	"time"
 
-	"github.com/boltdb/bolt"
-	pb "github.com/gosuri/uiprogress"
 	"gopkg.in/urfave/cli.v2"
 )
 
@@ -31,15 +28,8 @@ func (s *Statistics) String() string {
 	return fmt.Sprintf("[hostname: %s location: %s start : [%s] stop:%s, directory: [%d], file [%d], errors [%d]]", s.HostName, s.Location, start, stop, s.Directory, s.Files, s.Errors)
 }
 
-var i int
-var count int
-
-var db *bolt.DB
-var bar *pb.Bar
+//var bar *pb.Bar
 var dbname string
-var hasher hash.Hash
-var bucketName string
-var stats *Statistics
 var digesterNr int
 
 func main() {

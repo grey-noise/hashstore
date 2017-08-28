@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/boltdb/bolt"
+	ui "github.com/gosuri/uiprogress"
 )
 
 // A result is the product of reading and summing a file using MD5.
@@ -79,7 +80,14 @@ func digester(done <-chan struct{}, paths <-chan string, c chan<- result) {
 // from file path to the MD5 sum of the file's contents.  If the directory walk
 // fails or any read operation fails, MD5All returns an error.  In that case,
 // MD5All does not wait for inflight read operations to complete.
-func MD5All(root string, db *bolt.DB) error {
+func MD5All(root string, dbName string, bucketName string, stats *Statistics, bar *ui.Bar) error {
+
+	db, err := bolt.Open(dbname, 0600, nil)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
 	// MD5All closes the done channel when it returns; it may do so before
 	// receiving all the values from c and errc.
 	done := make(chan struct{})
@@ -104,7 +112,7 @@ func MD5All(root string, db *bolt.DB) error {
 		close(c) // HLc
 	}()
 	// End of pipeline. OMIT
-	err := db.Batch(func(tx *bolt.Tx) error {
+	err = db.Batch(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		e := b.Bucket([]byte("errors"))
 		if b == nil {
