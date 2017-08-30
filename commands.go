@@ -19,59 +19,40 @@ import (
 	"github.com/boltdb/bolt"
 )
 
-//Will display all the runids
+//List : Will display all the runids
 func listRuns(c *cli.Context) error {
+	db := openDb(dbname)
+	defer closeDb(db)
 
-	db, err := bolt.Open(dbname, 0600, nil)
-	if err != nil {
-		return err
-	}
-	defer closeDBdb(db)
-
-	err = db.View(func(tx *bolt.Tx) error {
+	err := db.View(func(tx *bolt.Tx) error {
 		return tx.ForEach(func(name []byte, b *bolt.Bucket) error {
-			//fmt.Println(string(name))
-			s := b.Bucket([]byte("stats"))
-			if s == nil {
-				return fmt.Errorf("Could not retrieve stats")
-			}
+			s := getBucketFromBucket(b, "stats")
 			stats := &Statistics{}
-			if err = json.Unmarshal(s.Get([]byte("stats")), stats); err != nil {
+			if err := json.Unmarshal(s.Get([]byte("stats")), stats); err != nil {
 				log.Printf("Unabale to unmarshall statistic")
+				return err
 			}
 			fmt.Printf("Stats for %s \n \t %+v \n", stats.Runid, stats)
 			return nil
 		})
 	})
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
+//Display : Will display all the hash and associated file of the run id
 func display(c *cli.Context) error {
-	bucketName := c.Args().First()
-	db, err := bolt.Open(dbname, 0600, nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer closeDBdb(db)
+	db := openDb(dbname)
+	defer closeDb(db)
 
-	err = db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-		err = b.ForEach(func(k, v []byte) error {
+	err := db.View(func(tx *bolt.Tx) error {
+		b := getBucketFromTransaction(tx, getBucketName(c))
+		err := b.ForEach(func(k, v []byte) error {
 			if v != nil {
 				fmt.Printf("file=%s, hash=%s\n", k, hex.EncodeToString(v))
 			}
 			return nil
 		})
-		if err != nil {
-			log.Println(err)
-		}
-		return nil
+		return err
 	})
 	if err != nil {
 		log.Println(err)
@@ -79,33 +60,21 @@ func display(c *cli.Context) error {
 	return nil
 }
 
+//Error : Will display all the errors and associated file of the run id
 func derror(c *cli.Context) error {
-	bucketName := c.Args().First()
-	db, err := bolt.Open(dbname, 0600, nil)
+	db := openDb(dbname)
+	defer closeDb(db)
 
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	defer closeDBdb(db)
-
-	err = db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-
-		if b == nil {
-			return fmt.Errorf("unable to get run info: %s", err)
-		}
-		ber := b.Bucket([]byte("errors"))
-		err = ber.ForEach(func(k, v []byte) error {
+	err := db.Update(func(tx *bolt.Tx) error {
+		b := getBucketFromTransaction(tx, getBucketName(c))
+		ber := getBucketFromBucket(b, "errors")
+		err := ber.ForEach(func(k, v []byte) error {
 			if v != nil {
 				fmt.Printf("file=%s, hash=%s\n", k, v)
 			}
 			return nil
 		})
-		if err != nil {
-			log.Println(err)
-		}
-		return nil
+		return err
 	})
 	if err != nil {
 		log.Println(err)
@@ -113,31 +82,88 @@ func derror(c *cli.Context) error {
 	return nil
 }
 
+//Compare : Will display all the runids
 func compareRuns(c *cli.Context) error {
-
 	if c.Args().Len() != 2 {
 		return fmt.Errorf("Please provice two runids")
 	}
-
-	src := c.Args().Get(0)
-	dest := c.Args().Get(1)
-
-	err := compare(src, dest, dbname)
-	if err != nil {
-		return err
-	}
-	return nil
+	return compare(c.Args().Get(0), c.Args().Get(1), dbname)
 }
 
+//Call by compareRuns
+func compare(src string, dest string, dbname string) error {
+	log.Printf("Comparing src %s with dest %s in db : %s", src, dest, dbname)
+	db := openDb(dbname)
+	defer closeDb(db)
+
+	err := db.View(func(tx *bolt.Tx) error {
+		log.Println("starting analysis")
+		bsrc := getBucketFromTransaction(tx, src)
+		bdest := getBucketFromTransaction(tx, dest)
+
+		if bsrc.Stats().KeyN != bdest.Stats().KeyN {
+			fmt.Println("different size")
+		}
+
+		// Iterating over src
+		c := bsrc.Cursor()
+		d := bdest.Cursor()
+		i, w := d.First()
+
+		for k, v := c.First(); k != nil; {
+			// key-value as empty value.
+			if v == nil {
+				k, v = c.Next()
+			}
+			if w == nil {
+				i, w = d.Next()
+			}
+
+			if v != nil {
+				//	w := bdest.Get(k)
+				comparaison := bytes.Compare(k, i)
+
+				if comparaison == 0 {
+					analysehash(k, v, w)
+					k, v = c.Next()
+					i, w = d.Next()
+				}
+
+				if comparaison < 0 {
+					log.Printf("%s is missing in destination run ", k)
+					k, v = c.Next()
+				}
+
+				if comparaison > 0 {
+					log.Printf("%s is missing in the destirnation src ", i)
+					i, w = d.Next()
+				}
+			}
+
+		}
+		return nil
+	})
+	return err
+}
+
+// delete : Will delete all information related to a run
 func delete(c *cli.Context) error {
-
-	if len(c.Args().First()) > 0 {
-		return deleteRun(dbname, c.Args().First())
+	if len(c.Args().First()) <= 0 {
+		return fmt.Errorf("Please provice a runId")
 	}
+	db := openDb(dbname)
+	defer closeDb(db)
 
-	return fmt.Errorf("Please provice a runId")
-
+	err := db.Update(func(tx *bolt.Tx) error {
+		err := tx.DeleteBucket([]byte(c.Args().First()))
+		if err != nil {
+			return fmt.Errorf("error deleting runs: %s", err)
+		}
+		return nil
+	})
+	return err
 }
+
 func startHash(c *cli.Context) error {
 
 	fmt.Println("computing...")
@@ -196,83 +222,6 @@ func startHash(c *cli.Context) error {
 	log.Printf("\n statisctic %+v \n", stats)
 
 	return saveStat(dbname, bucketName, *stats)
-
-}
-
-func compare(src string, dest string, dbname string) error {
-	log.Printf("Comparing src %s with dest %s in db : %s", src, dest, dbname)
-	db, err := bolt.Open(dbname, 0600, nil)
-	if err != nil {
-		log.Println(err)
-		return (err)
-	}
-	defer closeDBdb(db)
-
-	err = db.View(func(tx *bolt.Tx) error {
-
-		log.Println("starting analysis")
-		bsrc := tx.Bucket([]byte(src))
-
-		if bsrc == nil {
-			log.Println("src is not a runid")
-			return fmt.Errorf("unable to get info from src")
-		}
-
-		bdest := tx.Bucket([]byte(dest))
-		if bdest == nil {
-			log.Println("dest is not a runid")
-			return fmt.Errorf("unable to get info from dest")
-		}
-
-		if bsrc.Stats().KeyN != bdest.Stats().KeyN {
-			fmt.Println("different size")
-		}
-
-		// Iterating over src
-		c := bsrc.Cursor()
-		d := bdest.Cursor()
-		i, w := d.First()
-
-		for k, v := c.First(); k != nil; {
-			// key-value as empty value.
-			if v == nil {
-				k, v = c.Next()
-			}
-			if w == nil {
-				i, w = d.Next()
-			}
-
-			if v != nil {
-				//	w := bdest.Get(k)
-				comparaison := bytes.Compare(k, i)
-
-				if comparaison == 0 {
-					analysehash(k, v, w)
-					k, v = c.Next()
-					i, w = d.Next()
-				}
-
-				if comparaison < 0 {
-					log.Printf("%s is missing in destination run ", k)
-					k, v = c.Next()
-				}
-
-				if comparaison > 0 {
-
-					log.Printf("%s is missing in the destirnation src ", i)
-					i, w = d.Next()
-				}
-			}
-
-		}
-		return nil
-	})
-
-	if err != nil {
-		return (err)
-	}
-
-	return nil
 }
 
 func analysehash(key []byte, srcvalue []byte, destvalue []byte) bool {
@@ -284,29 +233,6 @@ func analysehash(key []byte, srcvalue []byte, destvalue []byte) bool {
 
 }
 
-func deleteRun(dbName string, runID string) error {
-	{
-		db, err := bolt.Open(dbname, 0600, nil)
-		if err != nil {
-			return (err)
-		}
-		defer closeDBdb(db)
-
-		err = db.Update(func(tx *bolt.Tx) error {
-			err = tx.DeleteBucket([]byte(runID))
-			if err != nil {
-				log.Println("error Deleting", runID)
-				return fmt.Errorf("error deleting runs: %s", err)
-			}
-			return nil
-		})
-		if err != nil {
-			log.Println(err)
-		}
-		return nil
-	}
-}
-
 func createRunBucket(dbname string) (string, error) {
 
 	t := time.Now()
@@ -314,15 +240,12 @@ func createRunBucket(dbname string) (string, error) {
 
 	bucketName := ulid.MustNew(ulid.Timestamp(t), entropy).String()
 
-	db, err := bolt.Open(dbname, 0600, nil)
-	if err != nil {
-		return "", (err)
-	}
-	defer closeDBdb(db)
+	db := openDb(dbname)
+	defer closeDb(db)
 
-	err = db.Update(func(tx *bolt.Tx) error {
-		b, err2 := tx.CreateBucketIfNotExists([]byte(bucketName))
-		if err2 != nil {
+	err := db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
+		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
 		_, err = b.CreateBucketIfNotExists([]byte("errors"))
@@ -341,21 +264,17 @@ func createRunBucket(dbname string) (string, error) {
 }
 
 func saveStat(dbname string, runID string, stats Statistics) error {
-
-	db, err := bolt.Open(dbname, 0600, nil)
-	if err != nil {
-		return err
-	}
-	defer closeDBdb(db)
+	db := openDb(dbname)
+	defer closeDb(db)
 
 	return db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(runID))
 		if b == nil {
-			return fmt.Errorf("get bucket: %s", err)
+			return fmt.Errorf("get bucket")
 		}
 		s := b.Bucket([]byte("stats"))
 		if s == nil {
-			return fmt.Errorf("get bucket: %s", err)
+			return fmt.Errorf("get bucket")
 		}
 
 		bs, err := json.Marshal(stats)
@@ -371,8 +290,41 @@ func saveStat(dbname string, runID string, stats Statistics) error {
 
 }
 
-func closeDBdb(db *bolt.DB) {
+func openDb(dnName string) *bolt.DB {
+	db, err := bolt.Open(dbname, 0600, nil)
+	if err != nil {
+		fmt.Println(err)
+	}
+	return db
+}
+
+func closeDb(db *bolt.DB) {
 	if err := db.Close(); err != nil {
 		fmt.Println(err)
 	}
+}
+
+func getBucketFromBucket(fb *bolt.Bucket, bucketName string) *bolt.Bucket {
+	b := fb.Bucket([]byte(bucketName))
+	if b == nil {
+		log.Fatalf("Could not retrieve Bucket %s from Bucket", bucketName)
+	}
+	return b
+}
+
+func getBucketFromTransaction(tx *bolt.Tx, bucketName string) *bolt.Bucket {
+	b := tx.Bucket([]byte(bucketName))
+	if b == nil {
+		log.Fatalf("Could not retrieve Bucket %s from Transaction", bucketName)
+	}
+	return b
+}
+
+func getBucketName(c *cli.Context) string {
+	bucketName := c.Args().First()
+	if bucketName == "" {
+		log.Fatalf("Don't forget to pass the run ID in argument, you can get it by the command 'list'")
+	}
+	fmt.Printf("Run ID : %v\n", bucketName)
+	return bucketName
 }
