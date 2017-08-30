@@ -197,21 +197,6 @@ func startHash(c *cli.Context) error {
 
 }
 
-func fcount(path string, info os.FileInfo, err error) error {
-	if err != nil {
-		log.Print(err)
-		//	return err
-	}
-
-	if info.IsDir() {
-		//stats.Directory++
-		return nil
-	}
-
-	//count++
-	return nil
-}
-
 func compare(src string, dest string, dbname string) error {
 	log.Printf("Comparing src %s with dest %s in db : %s", src, dest, dbname)
 	db, err := bolt.Open(dbname, 0600, nil)
