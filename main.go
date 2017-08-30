@@ -37,7 +37,7 @@ func main() {
 	app.Version = "0.1"
 	app.EnableShellCompletion = true
 	app.Flags = []cli.Flag{
-		&cli.StringFlag{Name: "db", Value: "pa.db", Usage: "the database location (must have writting access)", Destination: &dbname},
+		&cli.StringFlag{Name: "db", Value: "pa.db", Usage: "the database location (must have writing access)", Destination: &dbname},
 		&cli.IntFlag{Name: "pr", Value: 3, Usage: "the number of workers", Destination: &digesterNr},
 	}
 
