@@ -31,7 +31,7 @@ verifiers: getdeps vet fmt lint cyclo spelling deadcode errcheck
 
 vet:
 	@echo "Running $@ suspicious constructs"
-	@go tool vet -atomic -bool -copylocks -nilfunc -printf -shadow -rangeloops -unreachable -unsafeptr -unusedresult *.go
+	@go tool vet -atomic -bool -copylocks -nilfunc -printf -shadow -rangeloops -unreachable -unsafeptr -unusedresult main.go commands.go parallel.go
 
 fmt:
 	@echo "Running $@ indentation and blanks for alignment"
