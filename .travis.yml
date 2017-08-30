@@ -7,10 +7,11 @@ script:
 - go get github.com/mattn/goveralls
 - go test -v -covermode=count -coverprofile=coverage.out
 - ls -la
+- pwd
 - "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN"
 before_deploy:
-- ls -la ./scripts/
-- ls -la ./scripts/travis/
+- ls -la
+- pwd
 - "./scripts/travis/compile.sh"
 - ls bin/goHashStore-darwin-amd64.bin
 deploy:
