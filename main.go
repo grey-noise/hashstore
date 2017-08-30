@@ -22,21 +22,27 @@ type Statistics struct {
 	Duration  time.Duration
 }
 
+var (
+	dbname     string
+	digesterNr int
+	// Version overwritted by the VERSION file, necessary to use "make build" or "./scripts/travis/compile.sh"
+	Version = "Not fixed"
+)
+
+//Overloading of String
 func (s *Statistics) String() string {
-	start := s.Start.Format(time.RFC3339Nano)
-	stop := s.Stop.Format(time.RFC3339Nano)
-	return fmt.Sprintf("[hostname: %s location: %s start : [%s] stop:%s, directory: [%d], file [%d], errors [%d]]", s.HostName, s.Location, start, stop, s.Directory, s.Files, s.Errors)
+	return fmt.Sprintf("[hostname: %s location: %s start : [%s] stop:%s, directory: [%d], file [%d], errors [%d]]", s.HostName, s.Location, s.Start.Format(time.RFC3339Nano), s.Stop.Format(time.RFC3339Nano), s.Directory, s.Files, s.Errors)
 }
 
-var dbname string
-var digesterNr int
-
 func main() {
-	app := &cli.App{}
-	app.Version = "0.1"
-	app.EnableShellCompletion = true
+	app := &cli.App{
+		Version: Version,
+		Usage:   "Hashstore application",
+		EnableShellCompletion: true,
+	}
+
 	app.Flags = []cli.Flag{
-		&cli.StringFlag{Name: "db", Value: "pa.db", Usage: "the database location (must have writing access)", Destination: &dbname},
+		&cli.StringFlag{Name: "db", Value: "hashstore.db", Usage: "the database location (must have writing access)", Destination: &dbname},
 		&cli.IntFlag{Name: "pr", Value: 3, Usage: "the number of workers", Destination: &digesterNr},
 	}
 
@@ -51,7 +57,7 @@ func main() {
 		{
 			Name:        "display",
 			Aliases:     []string{"h"},
-			Usage:       "display  runid",
+			Usage:       "display runid",
 			Description: "will display all the hash and associated file of the run id",
 			Action:      display,
 		},
@@ -65,7 +71,7 @@ func main() {
 		{
 			Name:        "delete",
 			Aliases:     []string{"h"},
-			Usage:       "delete  runid",
+			Usage:       "delete runid",
 			Description: "will delete all information related to a run",
 			Action:      delete,
 		},
