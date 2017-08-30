@@ -37,7 +37,7 @@ func listRuns(c *cli.Context) error {
 				return fmt.Errorf("could not retrieve stats")
 			}
 			stats := &Statistics{}
-			if err := json.Unmarshal(s.Get([]byte("stats")), stats); err != nil {
+			if err = json.Unmarshal(s.Get([]byte("stats")), stats); err != nil {
 				log.Printf("unabale to unmarshall statistic")
 			}
 			fmt.Printf("stats for %s \n \t %+v \n", stats.Runid, stats)
@@ -306,7 +306,7 @@ func deleteRun(dbName string, runID string) error {
 		defer db.Close()
 
 		err = db.Update(func(tx *bolt.Tx) error {
-			err := tx.DeleteBucket([]byte(runID))
+			err = tx.DeleteBucket([]byte(runID))
 			if err != nil {
 				log.Println("error Deleting", runID)
 				return fmt.Errorf("error deleting runs: %s", err)
@@ -334,8 +334,8 @@ func createRunBucket(dbname string) (string, error) {
 	defer db.Close()
 
 	err = db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
-		if err != nil {
+		b, err2 := tx.CreateBucketIfNotExists([]byte(bucketName))
+		if err2 != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
 		_, err = b.CreateBucketIfNotExists([]byte("errors"))
