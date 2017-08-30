@@ -9,6 +9,8 @@ script:
 - ls -la
 - "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN"
 before_deploy:
+- ls -la ./scripts/
+- ls -la ./scripts/travis/
 - "./scripts/travis/compile.sh"
 - ls bin/goHashStore-darwin-amd64.bin
 deploy:
