@@ -17,6 +17,7 @@ debug
 
 # db files
 *.db
+*.db.lock
 *.sha
 
 bin
