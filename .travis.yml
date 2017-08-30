@@ -4,6 +4,7 @@ go:
 install:
 - go get .
 script:
+- go get github.com/mattn/goveralls
 - go test -v -covermode=count -coverprofile=coverage.out
 - ls -la
 - "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN"
