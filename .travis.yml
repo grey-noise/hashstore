@@ -1,0 +1,27 @@
+language: go
+go:
+- master
+install:
+- go get .
+script:
+- go test -v -covermode=count -coverprofile=coverage.out
+- ls -la
+- "$HOME/gopath/bin/goveralls -coverprofile=coverage.out -service=travis-ci -repotoken $COVERALLS_TOKEN"
+before_deploy:
+- "./scripts/travis/compile.sh"
+- ls bin/goHashStore-darwin-amd64.bin
+deploy:
+  provider: releases
+  github_token: $GITHUB_TOKEN 
+  file_glob: true
+  file:
+  - bin/goHashStore-darwin-386.bin
+  - bin/goHashStore-darwin-amd64.bin
+  - bin/goHashStore-linux-386.bin
+  - bin/goHashStore-linux-amd64.bin
+  - bin/goHashStore-windows-386.exe
+  - bin/goHashStore-windows-amd64.exe
+  skip_cleanup: true
+  on:
+    tags: true
+    all_branches: true
