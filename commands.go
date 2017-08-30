@@ -11,12 +11,16 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/boltdb/bolt"
 	ui "github.com/gosuri/uiprogress"
 	"github.com/oklog/ulid"
-
 	"gopkg.in/urfave/cli.v2"
+)
 
-	"github.com/boltdb/bolt"
+const (
+	errorBucket = "errors"
+	statsBucket = "stats"
+	keyStats    = "stats"
 )
 
 //List : Will display all the runids
@@ -24,19 +28,21 @@ func listRuns(c *cli.Context) error {
 	db := openDb(dbname)
 	defer closeDb(db)
 
-	err := db.View(func(tx *bolt.Tx) error {
-		return tx.ForEach(func(name []byte, b *bolt.Bucket) error {
-			s := getBucketFromBucket(b, "stats")
-			stats := &Statistics{}
-			if err := json.Unmarshal(s.Get([]byte("stats")), stats); err != nil {
-				log.Printf("Unabale to unmarshall statistic")
-				return err
-			}
-			fmt.Printf("Stats for %s \n \t %+v \n", stats.Runid, stats)
-			return nil
-		})
-	})
-	return err
+	statsFromOnBucket := func(name []byte, b *bolt.Bucket) error {
+		s := getBucketFromBucket(b, statsBucket)
+		stats := &Statistics{}
+		if err := json.Unmarshal(s.Get([]byte(keyStats)), stats); err != nil {
+			log.Printf("Unable to unmarshall statistic")
+			return err
+		}
+		fmt.Printf("Stats for %s \n \t %+v \n -----------------------------------\n", stats.Runid, stats)
+		return nil
+	}
+
+	statsFromAllBucket := func(tx *bolt.Tx) error {
+		return tx.ForEach(statsFromOnBucket)
+	}
+	return db.View(statsFromAllBucket)
 }
 
 //Display : Will display all the hash and associated file of the run id
@@ -44,7 +50,7 @@ func display(c *cli.Context) error {
 	db := openDb(dbname)
 	defer closeDb(db)
 
-	err := db.View(func(tx *bolt.Tx) error {
+	displayBucker := func(tx *bolt.Tx) error {
 		b := getBucketFromTransaction(tx, getBucketName(c))
 		err := b.ForEach(func(k, v []byte) error {
 			if v != nil {
@@ -53,11 +59,8 @@ func display(c *cli.Context) error {
 			return nil
 		})
 		return err
-	})
-	if err != nil {
-		log.Println(err)
 	}
-	return nil
+	return db.View(displayBucker)
 }
 
 //Error : Will display all the errors and associated file of the run id
@@ -65,9 +68,9 @@ func derror(c *cli.Context) error {
 	db := openDb(dbname)
 	defer closeDb(db)
 
-	err := db.Update(func(tx *bolt.Tx) error {
+	displayErrorFromOneBucket := func(tx *bolt.Tx) error {
 		b := getBucketFromTransaction(tx, getBucketName(c))
-		ber := getBucketFromBucket(b, "errors")
+		ber := getBucketFromBucket(b, errorBucket)
 		err := ber.ForEach(func(k, v []byte) error {
 			if v != nil {
 				fmt.Printf("file=%s, hash=%s\n", k, v)
@@ -75,11 +78,8 @@ func derror(c *cli.Context) error {
 			return nil
 		})
 		return err
-	})
-	if err != nil {
-		log.Println(err)
 	}
-	return nil
+	return db.Update(displayErrorFromOneBucket)
 }
 
 //Compare : Will display all the runids
@@ -96,7 +96,7 @@ func compare(src string, dest string, dbname string) error {
 	db := openDb(dbname)
 	defer closeDb(db)
 
-	err := db.View(func(tx *bolt.Tx) error {
+	compareTwoBucket := func(tx *bolt.Tx) error {
 		log.Println("starting analysis")
 		bsrc := getBucketFromTransaction(tx, src)
 		bdest := getBucketFromTransaction(tx, dest)
@@ -118,32 +118,27 @@ func compare(src string, dest string, dbname string) error {
 			if w == nil {
 				i, w = d.Next()
 			}
-
 			if v != nil {
-				//	w := bdest.Get(k)
 				comparaison := bytes.Compare(k, i)
 
-				if comparaison == 0 {
+				switch {
+				case comparaison == 0:
 					analysehash(k, v, w)
 					k, v = c.Next()
 					i, w = d.Next()
-				}
-
-				if comparaison < 0 {
+				case comparaison < 0:
 					log.Printf("%s is missing in destination run ", k)
 					k, v = c.Next()
-				}
-
-				if comparaison > 0 {
+				case comparaison > 0:
 					log.Printf("%s is missing in the destirnation src ", i)
 					i, w = d.Next()
 				}
 			}
-
 		}
 		return nil
-	})
-	return err
+	}
+
+	return db.View(compareTwoBucket)
 }
 
 // delete : Will delete all information related to a run
@@ -154,19 +149,30 @@ func delete(c *cli.Context) error {
 	db := openDb(dbname)
 	defer closeDb(db)
 
-	err := db.Update(func(tx *bolt.Tx) error {
-		err := tx.DeleteBucket([]byte(c.Args().First()))
-		if err != nil {
+	deleteOneBucket := func(tx *bolt.Tx) error {
+		if err := tx.DeleteBucket([]byte(c.Args().First())); err != nil {
 			return fmt.Errorf("error deleting runs: %s", err)
 		}
 		return nil
-	})
-	return err
+	}
+	return db.Update(deleteOneBucket)
 }
 
+func analysehash(key []byte, srcvalue []byte, destvalue []byte) bool {
+	if bytes.Equal(srcvalue, destvalue) {
+		return true
+	}
+	log.Printf("%s is not ok", key)
+	return false
+}
+
+//start : Will compute a hash for every file below the location and store it into the db
 func startHash(c *cli.Context) error {
 
 	fmt.Println("computing...")
+	if len(c.Args().First()) <= 0 {
+		return fmt.Errorf("Please provice a path or '.'")
+	}
 	dir := c.Args().First()
 
 	name, err := os.Hostname()
@@ -174,33 +180,26 @@ func startHash(c *cli.Context) error {
 		return err
 	}
 
-	stats := &Statistics{
-		HostName:  name,
-		Location:  dir,
-		Start:     time.Now(),
-		Errors:    0,
-		Files:     0,
-		Directory: 0,
-	}
+	db := openDb(dbname)
+	defer closeDb(db)
 
-	bucketName, err := createRunBucket(dbname)
+	bucketName, err := createRunBucket(db)
 	if err != nil {
 		return err
 	}
-	stats.Runid = bucketName
+
 	fmt.Println("computing the number of files to be processed ")
 	count := 0
+	countDirectory := 0
 	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			log.Print(err)
-			//	return err
+			log.Println("eoor")
+			return err
 		}
-
 		if info.IsDir() {
-			stats.Directory++
+			countDirectory++
 			return nil
 		}
-
 		count++
 		return nil
 	})
@@ -214,87 +213,79 @@ func startHash(c *cli.Context) error {
 	bar.AppendCompleted()
 	bar.PrependElapsed()
 
-	if err := MD5All(dir, dbname, bucketName, stats, bar); err != nil {
+	stats := &Statistics{
+		HostName:  name,
+		Location:  dir,
+		Start:     time.Now(),
+		Errors:    0,
+		Files:     0,
+		Directory: countDirectory,
+		Runid:     bucketName,
+	}
+
+	if err := MD5All(dir, db, bucketName, stats, bar); err != nil {
 		return err
 	}
+
 	stats.Stop = time.Now()
 	stats.Duration = stats.Stop.Sub(stats.Start)
+
 	log.Printf("\n statisctic %+v \n", stats)
-
-	return saveStat(dbname, bucketName, *stats)
+	return saveStat(db, bucketName, *stats)
 }
 
-func analysehash(key []byte, srcvalue []byte, destvalue []byte) bool {
-	if bytes.Equal(srcvalue, destvalue) {
-		return true
-	}
-	log.Printf("%s is not ok", key)
-	return false
-
-}
-
-func createRunBucket(dbname string) (string, error) {
-
+func createRunBucket(db *bolt.DB) (string, error) {
 	t := time.Now()
 	entropy := rand.New(rand.NewSource(t.UnixNano()))
 
 	bucketName := ulid.MustNew(ulid.Timestamp(t), entropy).String()
 
-	db := openDb(dbname)
-	defer closeDb(db)
-
-	err := db.Update(func(tx *bolt.Tx) error {
+	createBucket := func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(bucketName))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
-		_, err = b.CreateBucketIfNotExists([]byte("errors"))
+		_, err = b.CreateBucketIfNotExists([]byte(errorBucket))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
-		_, err = b.CreateBucket([]byte("stats"))
+		_, err = b.CreateBucket([]byte(statsBucket))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
-
 		return nil
-	})
-
-	return bucketName, err
+	}
+	return bucketName, db.Update(createBucket)
 }
 
-func saveStat(dbname string, runID string, stats Statistics) error {
-	db := openDb(dbname)
-	defer closeDb(db)
-
-	return db.Update(func(tx *bolt.Tx) error {
+func saveStat(db *bolt.DB, runID string, stats Statistics) error {
+	updateStat := func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(runID))
 		if b == nil {
 			return fmt.Errorf("get bucket")
 		}
-		s := b.Bucket([]byte("stats"))
+		s := b.Bucket([]byte(statsBucket))
 		if s == nil {
 			return fmt.Errorf("get bucket")
 		}
-
 		bs, err := json.Marshal(stats)
 		if err != nil {
 			return fmt.Errorf("marshall %s", err)
 		}
-
-		if err := s.Put([]byte("stats"), bs); err != nil {
+		if err := s.Put([]byte(keyStats), bs); err != nil {
 			return err
 		}
 		return nil
-	})
-
+	}
+	return db.Update(updateStat)
 }
 
-func openDb(dnName string) *bolt.DB {
+func openDb(dbname string) *bolt.DB {
 	db, err := bolt.Open(dbname, 0600, nil)
 	if err != nil {
 		fmt.Println(err)
 	}
+	fmt.Printf("Open Db %s \n -----------------------------------\n", dbname)
 	return db
 }
 

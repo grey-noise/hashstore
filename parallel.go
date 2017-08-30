@@ -3,7 +3,6 @@ package main
 import (
 	"crypto/md5"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -54,7 +53,7 @@ func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) 
 // digester reads path names from paths and sends digests of the corresponding
 // files on c until either paths or done is closed.
 func digester(done <-chan struct{}, paths <-chan string, c chan<- result) {
-	for path := range paths { // HLpaths
+	for path := range paths {
 		res := result{path: path}
 		f, err := os.Open(path)
 		if err != nil {
@@ -66,11 +65,11 @@ func digester(done <-chan struct{}, paths <-chan string, c chan<- result) {
 			}
 			res.sum = h.Sum(nil)
 		}
+
 		select {
 		case c <- res:
 		case <-done:
 			return
-
 		}
 
 	}
@@ -80,17 +79,7 @@ func digester(done <-chan struct{}, paths <-chan string, c chan<- result) {
 // from file path to the MD5 sum of the file's contents.  If the directory walk
 // fails or any read operation fails, MD5All returns an error.  In that case,
 // MD5All does not wait for inflight read operations to complete.
-func MD5All(root string, dbName string, bucketName string, stats *Statistics, bar *ui.Bar) error {
-
-	db, err := bolt.Open(dbname, 0600, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			fmt.Println(err)
-		}
-	}()
+func MD5All(root string, db *bolt.DB, bucketName string, stats *Statistics, bar *ui.Bar) error {
 
 	// MD5All closes the done channel when it returns; it may do so before
 	// receiving all the values from c and errc.
@@ -115,31 +104,27 @@ func MD5All(root string, dbName string, bucketName string, stats *Statistics, ba
 		wg.Wait()
 		close(c) // HLc
 	}()
-	// End of pipeline. OMIT
-	err = db.Batch(func(tx *bolt.Tx) error {
+
+	addPathHashOrError := func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
-		e := b.Bucket([]byte("errors"))
-		if b == nil {
-			return fmt.Errorf("gettings bucket")
-		}
+		e := getBucketFromBucket(b, errorBucket)
 		for r := range c { // HLrange
 			bar.Incr()
 			stats.Files++
 			if r.err != nil {
 				stats.Errors++
-				if err = e.Put([]byte(r.path), []byte(r.err.Error())); err != nil {
+				if err := e.Put([]byte(r.path), []byte(r.err.Error())); err != nil {
 					log.Println(err)
 				}
 			} else {
-				if err = b.Put([]byte(r.path), r.sum[:]); err != nil {
+				if err := b.Put([]byte(r.path), r.sum[:]); err != nil {
 					log.Println(err)
 				}
-
 			}
-
 		}
 		return nil
-	})
+	}
+	err := db.Batch(addPathHashOrError)
 	if err != nil {
 		return err
 	}
@@ -147,5 +132,5 @@ func MD5All(root string, dbName string, bucketName string, stats *Statistics, ba
 		log.Println(err)
 		return err
 	}
-	return nil
+	return err
 }

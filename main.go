@@ -31,7 +31,7 @@ var (
 
 //Overloading of String to display information
 func (s *Statistics) String() string {
-	return fmt.Sprintf("[hostname: %s location: %s start : [%s] stop: [%s], directory: [%d], file [%d], errors [%d]]", s.HostName, s.Location, s.Start.Format(time.RFC3339Nano), s.Stop.Format(time.RFC3339Nano), s.Directory, s.Files, s.Errors)
+	return fmt.Sprintf("[hostname: %s location: %s start : [%s] stop: [%s], directory: [%d], file [%d], errors [%d], runId [%s] ]", s.HostName, s.Location, s.Start.Format(time.RFC3339Nano), s.Stop.Format(time.RFC3339Nano), s.Directory, s.Files, s.Errors, s.Runid)
 }
 
 func main() {
