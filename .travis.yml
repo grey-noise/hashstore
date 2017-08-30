@@ -17,7 +17,7 @@ before_deploy:
 - ls bin/goHashStore-darwin-amd64.bin
 deploy:
   provider: releases
-  github_token: $GITHUB_TOKEN 
+  api_key: $GITHUB_TOKEN 
   file_glob: true
   file:
   - bin/goHashStore-darwin-386.bin
