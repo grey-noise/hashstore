@@ -23,13 +23,11 @@ type Statistics struct {
 }
 
 func (s *Statistics) String() string {
-
 	start := s.Start.Format(time.RFC3339Nano)
 	stop := s.Stop.Format(time.RFC3339Nano)
 	return fmt.Sprintf("[hostname: %s location: %s start : [%s] stop:%s, directory: [%d], file [%d], errors [%d]]", s.HostName, s.Location, start, stop, s.Directory, s.Files, s.Errors)
 }
 
-//var bar *pb.Bar
 var dbname string
 var digesterNr int
 
