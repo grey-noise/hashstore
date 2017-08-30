@@ -280,6 +280,11 @@ func compare(src string, dest string, dbname string) error {
 		}
 		return nil
 	})
+
+	if err != nil {
+		return (err)
+	}
+
 	return nil
 }
 
