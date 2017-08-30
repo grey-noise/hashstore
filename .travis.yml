@@ -5,6 +5,7 @@ install:
 - go get .
 script:
 - go get github.com/mattn/goveralls
+- go get github.com/mattn/go-isatty
 - go test -v -covermode=count -coverprofile=coverage.out
 - ls -la
 - pwd
