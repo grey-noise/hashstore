@@ -86,7 +86,11 @@ func MD5All(root string, dbName string, bucketName string, stats *Statistics, ba
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			fmt.Println(err)
+		}
+	}()
 
 	// MD5All closes the done channel when it returns; it may do so before
 	// receiving all the values from c and errc.

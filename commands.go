@@ -25,7 +25,7 @@ func listRuns(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer closeDBdb(db)
 
 	err = db.View(func(tx *bolt.Tx) error {
 
@@ -56,7 +56,7 @@ func display(c *cli.Context) error {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+	defer closeDBdb(db)
 
 	err = db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
@@ -88,7 +88,7 @@ func derror(c *cli.Context) error {
 		log.Fatal(err)
 	}
 
-	defer db.Close()
+	defer closeDBdb(db)
 
 	err = db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
@@ -123,7 +123,10 @@ func compareRuns(c *cli.Context) error {
 	src := c.Args().Get(0)
 	dest := c.Args().Get(1)
 
-	compare(src, dest, dbname)
+	err := compare(src, dest, dbname)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -204,7 +207,7 @@ func compare(src string, dest string, dbname string) error {
 		log.Println(err)
 		return (err)
 	}
-	defer db.Close()
+	defer closeDBdb(db)
 
 	err = db.View(func(tx *bolt.Tx) error {
 
@@ -288,7 +291,7 @@ func deleteRun(dbName string, runID string) error {
 		if err != nil {
 			return (err)
 		}
-		defer db.Close()
+		defer closeDBdb(db)
 
 		err = db.Update(func(tx *bolt.Tx) error {
 			err = tx.DeleteBucket([]byte(runID))
@@ -316,7 +319,7 @@ func createRunBucket(dbname string) (string, error) {
 	if err != nil {
 		return "", (err)
 	}
-	defer db.Close()
+	defer closeDBdb(db)
 
 	err = db.Update(func(tx *bolt.Tx) error {
 		b, err2 := tx.CreateBucketIfNotExists([]byte(bucketName))
@@ -344,7 +347,7 @@ func saveStat(dbname string, runID string, stats Statistics) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer closeDBdb(db)
 
 	return db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(runID))
@@ -367,4 +370,10 @@ func saveStat(dbname string, runID string, stats Statistics) error {
 		return nil
 	})
 
+}
+
+func closeDBdb(db *bolt.DB) {
+	if err := db.Close(); err != nil {
+		fmt.Println(err)
+	}
 }
