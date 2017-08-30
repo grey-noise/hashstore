@@ -9,6 +9,7 @@ import (
 	"gopkg.in/urfave/cli.v2"
 )
 
+// Statistics is the struc to save statistics data
 type Statistics struct {
 	HostName  string
 	Location  string
