@@ -19,6 +19,7 @@ import (
 	"github.com/boltdb/bolt"
 )
 
+//Will display all the runids
 func listRuns(c *cli.Context) error {
 
 	db, err := bolt.Open(dbname, 0600, nil)
@@ -28,19 +29,17 @@ func listRuns(c *cli.Context) error {
 	defer closeDBdb(db)
 
 	err = db.View(func(tx *bolt.Tx) error {
-
 		return tx.ForEach(func(name []byte, b *bolt.Bucket) error {
 			//fmt.Println(string(name))
 			s := b.Bucket([]byte("stats"))
 			if s == nil {
-
-				return fmt.Errorf("could not retrieve stats")
+				return fmt.Errorf("Could not retrieve stats")
 			}
 			stats := &Statistics{}
 			if err = json.Unmarshal(s.Get([]byte("stats")), stats); err != nil {
-				log.Printf("unabale to unmarshall statistic")
+				log.Printf("Unabale to unmarshall statistic")
 			}
-			fmt.Printf("stats for %s \n \t %+v \n", stats.Runid, stats)
+			fmt.Printf("Stats for %s \n \t %+v \n", stats.Runid, stats)
 			return nil
 		})
 	})
