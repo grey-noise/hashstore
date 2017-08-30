@@ -55,19 +55,19 @@ func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) 
 // files on c until either paths or done is closed.
 func digester(done <-chan struct{}, paths <-chan string, c chan<- result) {
 	for path := range paths { // HLpaths
-		result := result{path: path}
+		res := result{path: path}
 		f, err := os.Open(path)
 		if err != nil {
-			result.err = err
+			res.err = err
 		} else {
 			h := md5.New()
 			if _, err := io.Copy(h, f); err != nil {
-				result.err = err
+				res.err = err
 			}
-			result.sum = h.Sum(nil)
+			res.sum = h.Sum(nil)
 		}
 		select {
-		case c <- result:
+		case c <- res:
 		case <-done:
 			return
 
@@ -123,11 +123,11 @@ func MD5All(root string, dbName string, bucketName string, stats *Statistics, ba
 			stats.Files++
 			if r.err != nil {
 				stats.Errors++
-				if err := e.Put([]byte(r.path), []byte(r.err.Error())); err != nil {
+				if err = e.Put([]byte(r.path), []byte(r.err.Error())); err != nil {
 					log.Println(err)
 				}
 			} else {
-				if err := b.Put([]byte(r.path), r.sum[:]); err != nil {
+				if err = b.Put([]byte(r.path), r.sum[:]); err != nil {
 					log.Println(err)
 				}
 
